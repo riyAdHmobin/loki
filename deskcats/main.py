@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QApplication
 
 from .cat import Cat
 from .config import BASE_SPEED_PX_PER_S, load_config
+from .spots import generate_spots, resolve_seed
 from .sprites import SpriteSet
 
 ASSETS_SKINS_DIR = Path(__file__).resolve().parent.parent / "assets" / "skins"
@@ -15,7 +16,11 @@ def _spawn_cats(config: dict, app: QApplication) -> list[Cat]:
     geo = app.primaryScreen().availableGeometry()
     cats = []
     for name, profile in config["cats"].items():
-        sprite_set = SpriteSet(ASSETS_SKINS_DIR / profile["skin"])
+        spots = None
+        if profile.get("spots"):
+            seed = resolve_seed(profile.get("spot_seed", "daily"))
+            spots = generate_spots(seed)
+        sprite_set = SpriteSet(ASSETS_SKINS_DIR / profile["skin"], spots=spots)
         frame_size = sprite_set.frame_size
         x = geo.width() * profile["start_frac"] - frame_size / 2
         y = geo.bottom() - frame_size
