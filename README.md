@@ -29,6 +29,19 @@ This installs the `deskcats` command:
 deskcats
 ```
 
+### Install / Update / Uninstall (one-liner)
+
+No clone needed — this downloads and runs `install.sh` directly:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/riyAdHmobin/loki/main/install.sh)                 # install
+bash <(curl -fsSL https://raw.githubusercontent.com/riyAdHmobin/loki/main/install.sh) update           # update
+bash <(curl -fsSL https://raw.githubusercontent.com/riyAdHmobin/loki/main/install.sh) uninstall         # uninstall
+```
+
+Add `--purge` to `uninstall` to also remove `~/.config/deskcats`. Add `-y`
+to any command to skip confirmation prompts.
+
 ## Controls
 
 | Action | Effect |

@@ -65,6 +65,8 @@ def _acquire_single_instance_lock(lock_path: Path = LOCK_PATH):
     except OSError:
         lock_file.close()
         return None
+    lock_file.write(str(os.getpid()))
+    lock_file.flush()
     return lock_file
 
 
