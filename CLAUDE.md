@@ -65,6 +65,8 @@ Key points:
 - **Single-instance + Wayland guard in `main.py`.** An `flock` on `~/.config/deskcats/deskcats.lock` prevents a second `deskcats` process from spawning duplicate cats; `_is_wayland()` checks `XDG_SESSION_TYPE` (skipped when `QT_QPA_PLATFORM=offscreen`, so headless tests aren't blocked) and shows a `QMessageBox` pointing the user at the Xorg login option instead of starting under Wayland.
 - **`install.sh` is independent of the Python package** — it's a plain bash script (not part of `deskcats/`) that clones the repo to `~/.local/share/deskcats` and symlinks/wraps the entry point at `~/.local/bin/deskcats`; it's tested via subprocess in `tests/test_install_script.py` rather than pytest importing it as a module.
 
+For the full behavior spec (exact timers, weights, social-interaction distances/probabilities, mouse interaction table), see `BEHAVIOR.md` rather than re-deriving it from `state_machine.py`/`cat.py` — keep both in sync when behavior constants change.
+
 ## Workflow
 
 `BUILD_GUIDE.md` §5 lists the final human-verified acceptance criteria (both cats visible within 1s, Mike's spots vary per run, Loki wanders more/Mike sleeps more, drag/drop physics, ≥1 social behavior per 15 min with no permanent clumping, CPU/RAM budget, clean quit/relaunch/double-launch handling, and the install/update/uninstall one-liners). When making a nontrivial change: implement, run the relevant headless checks (`pytest`, `QT_QPA_PLATFORM=offscreen deskcats --smoke-test`), then hand off to the human with precise instructions on which of these criteria to re-verify visually on an actual Xorg session before merging.
