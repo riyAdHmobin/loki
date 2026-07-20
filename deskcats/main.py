@@ -25,7 +25,7 @@ def _spawn_cats(config: dict, app: QApplication) -> list[Cat]:
         x = geo.width() * profile["start_frac"] - frame_size / 2
         y = geo.bottom() - frame_size
         speed = profile["speed"] * BASE_SPEED_PX_PER_S
-        cats.append(Cat(name, sprite_set, x, y, speed))
+        cats.append(Cat(name, sprite_set, x, y, speed, profile["weights"]))
     return cats
 
 

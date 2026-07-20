@@ -16,6 +16,7 @@ DEFAULT_CONFIG = {
             "speed": 1.2,
             "start_frac": 0.25,
             "spots": False,
+            "weights": {"wander": 45, "sleep": 10, "sit": 20, "idle": 25},
         },
         "mike": {
             "skin": "mike-white",
@@ -23,6 +24,7 @@ DEFAULT_CONFIG = {
             "start_frac": 0.75,
             "spots": True,
             "spot_seed": "daily",
+            "weights": {"wander": 25, "sleep": 30, "sit": 25, "idle": 20},
         },
     },
 }

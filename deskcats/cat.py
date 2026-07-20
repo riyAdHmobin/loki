@@ -1,15 +1,34 @@
+import random
+
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPainter
 from PyQt6.QtWidgets import QApplication, QWidget
 
-from .physics import step_walk
 from .sprites import SpriteSet
+from .state_machine import Brain, State
 
 MOVE_INTERVAL_MS = 33
+SLEEP_ANIM_INTERVAL_MS = 500
+
+STATE_ANIMATION = {
+    State.WANDER: "walk",
+    State.IDLE: "idle",
+    State.SIT: "sit",
+    State.SLEEP: "sleep",
+}
 
 
 class Cat(QWidget):
-    def __init__(self, name: str, sprite_set: SpriteSet, x: float, y: float, speed: float):
+    def __init__(
+        self,
+        name: str,
+        sprite_set: SpriteSet,
+        x: float,
+        y: float,
+        speed: float,
+        weights: dict[str, float],
+        rng: random.Random | None = None,
+    ):
         super().__init__(
             None,
             Qt.WindowType.FramelessWindowHint
@@ -26,10 +45,14 @@ class Cat(QWidget):
 
         self.x = x
         self.y = y
-        self.vx = speed
-        self.anim_name = "walk"
+        self.base_speed = abs(speed)
+        self.facing_left = False
+
+        self.rng = rng or random.Random()
+        self.brain = Brain(weights, self.rng, self._bounds())
+
+        self.anim_name = STATE_ANIMATION[self.brain.state]
         self.anim_index = 0
-        self.facing_left = speed < 0
 
         self.move(int(self.x), int(self.y))
 
@@ -42,8 +65,12 @@ class Cat(QWidget):
         self._restart_anim_timer()
 
     def _restart_anim_timer(self) -> None:
-        fps = self.sprites.fps(self.anim_name)
-        self.anim_timer.start(max(1, int(1000 / fps)))
+        if self.brain.state is State.SLEEP:
+            interval = SLEEP_ANIM_INTERVAL_MS
+        else:
+            fps = self.sprites.fps(self.anim_name)
+            interval = max(1, int(1000 / fps))
+        self.anim_timer.start(interval)
 
     def _bounds(self) -> tuple[float, float]:
         width = QApplication.primaryScreen().availableGeometry().width()
@@ -54,12 +81,27 @@ class Cat(QWidget):
 
     def _tick_movement(self) -> None:
         dt = self.move_timer.interval() / 1000.0
-        new_x, new_vx = step_walk(self.x, self.vx, dt, self._bounds())
-        if new_vx != self.vx:
-            self.facing_left = new_vx < 0
-        self.x, self.vx = new_x, new_vx
+        prev_state = self.brain.state
+        state = self.brain.tick(dt, {"x": self.x})
+
+        if state is State.WANDER and self.brain.wander_target_x is not None:
+            lo, hi = self._bounds()
+            remaining = self.brain.wander_target_x - self.x
+            direction = 1.0 if remaining >= 0 else -1.0
+            step = min(abs(remaining), self.base_speed * dt)
+            self.x = max(lo, min(hi, self.x + direction * step))
+            self.facing_left = direction < 0
+
+        if state is not prev_state:
+            self._on_state_changed(state)
+
         self.move(int(self.x), int(self.y))
         self.update()
+
+    def _on_state_changed(self, state: State) -> None:
+        self.anim_name = STATE_ANIMATION.get(state, self.anim_name)
+        self.anim_index = 0
+        self._restart_anim_timer()
 
     def _tick_animation(self) -> None:
         self.anim_index = (self.anim_index + 1) % self.sprites.frame_count(self.anim_name)
