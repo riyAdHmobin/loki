@@ -1,0 +1,17 @@
+frame_size = 64
+
+[idle]
+frames = 4
+fps = 10
+
+[walk]
+frames = 6
+fps = 10
+
+[sleep]
+frames = 4
+fps = 4
+
+[sit]
+frames = 4
+fps = 10
