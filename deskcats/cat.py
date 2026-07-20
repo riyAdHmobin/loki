@@ -5,8 +5,9 @@ from PyQt6.QtGui import QMouseEvent, QPainter
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QWidget
 
 from .physics import step_fall
+from .social import Registry
 from .sprites import SpriteSet
-from .state_machine import Brain, State
+from .state_machine import SOCIAL_STATES, Brain, State
 
 MOVE_INTERVAL_MS = 33
 SLEEP_ANIM_INTERVAL_MS = 500
@@ -17,12 +18,17 @@ SQUASH_SCALE_Y = 0.8
 CLICK_DRAG_THRESHOLD_PX = 4
 GRAVITY_PX_S2 = 1500.0
 TERMINAL_VELOCITY_PX_S = 1200.0
+STARTLE_CHAIN_DISTANCE_PX = 100.0
+STARTLE_CHAIN_DELAY_MS = 300
+STEP_ASIDE_DISTANCE_PX = 20.0
 
 STATE_ANIMATION = {
     State.WANDER: "walk",
     State.IDLE: "idle",
     State.SIT: "sit",
     State.SLEEP: "sleep",
+    State.SOCIAL_APPROACH: "walk",
+    State.SOCIAL_NAP: "walk",
 }
 
 BIOS = {
@@ -41,6 +47,7 @@ class Cat(QWidget):
         speed: float,
         weights: dict[str, float],
         rng: random.Random | None = None,
+        registry: Registry | None = None,
     ):
         super().__init__(
             None,
@@ -67,6 +74,9 @@ class Cat(QWidget):
         self._press_global: QPoint | None = None
         self._press_offset: QPoint | None = None
 
+        self.registry = registry
+        self.sibling: "Cat | None" = None
+
         self.rng = rng or random.Random()
         self.brain = Brain(weights, self.rng, self._bounds())
 
@@ -74,6 +84,8 @@ class Cat(QWidget):
         self.anim_index = 0
 
         self.move(int(self.x), int(self.y))
+        if self.registry is not None:
+            self.registry.update(self.name, self.x, self.brain.state, self.base_speed)
 
         self.move_timer = QTimer(self)
         self.move_timer.timeout.connect(self._tick_movement)
@@ -123,38 +135,78 @@ class Cat(QWidget):
 
     # -- brain-driven movement -----------------------------------------------
 
+    def _other_status(self):
+        return self.registry.other_of(self.name) if self.registry is not None else None
+
+    def _sync_registry(self, state: State) -> None:
+        if self.registry is not None:
+            self.registry.update(self.name, self.x, state, self.base_speed)
+
     def _tick_movement(self) -> None:
         state = self.brain.state
         dt = self.move_timer.interval() / 1000.0
 
         if state is State.DRAGGED:
+            self._sync_registry(state)
             return
         if state is State.FALLING:
             self._tick_falling(dt)
+            self._sync_registry(self.brain.state)
             return
         if state is State.STARTLED:
             self.brain.tick(dt, {"x": self.x})
             if self.brain.state_elapsed >= STARTLED_DURATION_S:
                 self.brain.force(State.IDLE)
                 self._reset_animation(STATE_ANIMATION[State.IDLE])
+            self._sync_registry(self.brain.state)
             return
 
-        prev_state = state
-        state = self.brain.tick(dt, {"x": self.x})
+        other = self._other_status()
+        context = {"x": self.x}
+        if other is not None:
+            context["other_x"] = other.x
+            context["other_state"] = other.state
 
-        if state is State.WANDER and self.brain.wander_target_x is not None:
+        prev_state = state
+        state = self.brain.tick(dt, context)
+
+        target_x = None
+        if state is State.WANDER:
+            target_x = self.brain.wander_target_x
+        elif state in SOCIAL_STATES:
+            target_x = self.brain.social_target_x
+
+        if target_x is not None:
             lo, hi = self._bounds()
-            remaining = self.brain.wander_target_x - self.x
+            remaining = target_x - self.x
             direction = 1.0 if remaining >= 0 else -1.0
             step = min(abs(remaining), self.base_speed * dt)
             self.x = max(lo, min(hi, self.x + direction * step))
             self.facing_left = direction < 0
 
+        if other is not None and state not in SOCIAL_STATES:
+            self._maybe_step_aside(other, dt)
+
         if state is not prev_state:
             self._reset_animation(STATE_ANIMATION.get(state, self.anim_name))
 
         self.move(int(self.x), int(self.y))
+        self._sync_registry(state)
         self.update()
+
+    def _maybe_step_aside(self, other, dt: float) -> None:
+        if other.state in SOCIAL_STATES:
+            return
+        distance = self.x - other.x
+        if abs(distance) >= STEP_ASIDE_DISTANCE_PX:
+            return
+        if self.base_speed <= other.speed:
+            return
+        lo, hi = self._bounds()
+        direction = 1.0 if distance >= 0 else -1.0
+        step = self.base_speed * dt
+        self.x = max(lo, min(hi, self.x + direction * step))
+        self.facing_left = direction < 0
 
     def _tick_falling(self, dt: float) -> None:
         self.y, self.vy, landed = step_fall(
@@ -225,6 +277,21 @@ class Cat(QWidget):
             self._reset_animation(STATE_ANIMATION[State.IDLE])
 
     def _start_startled(self) -> None:
+        self.brain.force(State.STARTLED)
+        self._reset_animation(STATE_ANIMATION[State.IDLE])
+        self._propagate_startle_chain()
+
+    def _propagate_startle_chain(self) -> None:
+        if self.sibling is None:
+            return
+        other = self._other_status()
+        if other is None or abs(self.x - other.x) > STARTLE_CHAIN_DISTANCE_PX:
+            return
+        QTimer.singleShot(STARTLE_CHAIN_DELAY_MS, self.sibling._trigger_chained_startle)
+
+    def _trigger_chained_startle(self) -> None:
+        if self.brain.state in (State.DRAGGED, State.FALLING):
+            return
         self.brain.force(State.STARTLED)
         self._reset_animation(STATE_ANIMATION[State.IDLE])
 
