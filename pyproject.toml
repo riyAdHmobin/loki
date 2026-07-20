@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "deskcats"
 version = "0.1.0"
 description = "Loki & Mike - desktop pet cats for Ubuntu (X11)"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "PyQt6",
     "Pillow",
