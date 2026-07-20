@@ -4,7 +4,7 @@ from deskcats.cat import GRAVITY_PX_S2, TERMINAL_VELOCITY_PX_S
 from deskcats.physics import step_fall
 from deskcats.sprites import SpriteSet
 
-ASSETS_SKINS_DIR = Path(__file__).resolve().parent.parent / "assets" / "skins"
+ASSETS_SKINS_DIR = Path(__file__).resolve().parent.parent / "deskcats" / "assets" / "skins"
 
 
 def test_fall_accelerates_with_configured_gravity_and_terminal_velocity():

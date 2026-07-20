@@ -16,7 +16,7 @@ ANIMATIONS = {
     "sit": {"frames": 4, "fps": 10},
 }
 
-ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets" / "skins"
+ASSETS_DIR = Path(__file__).resolve().parent / "assets" / "skins"
 
 
 def _ear(draw, cx, cy, w, h, fill, outline):
