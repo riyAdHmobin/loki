@@ -50,6 +50,10 @@ class Brain:
             return self.rng.uniform(*SIT_DURATION)
         return None  # WANDER ends on arrival/edge, not on a timer
 
+    def force(self, state: State) -> None:
+        """Externally impose a state (interaction states Brain doesn't drive itself)."""
+        self._enter(state)
+
     def _enter(self, state: State) -> None:
         self.state = state
         self.state_elapsed = 0.0

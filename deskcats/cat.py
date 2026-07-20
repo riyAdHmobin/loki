@@ -1,20 +1,33 @@
 import random
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QPainter
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtCore import QPoint, Qt, QTimer
+from PyQt6.QtGui import QMouseEvent, QPainter
+from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QWidget
 
+from .physics import step_fall
 from .sprites import SpriteSet
 from .state_machine import Brain, State
 
 MOVE_INTERVAL_MS = 33
 SLEEP_ANIM_INTERVAL_MS = 500
+STARTLED_DURATION_S = 1.0
+STARTLED_FPS_MULTIPLIER = 2
+SQUASH_DURATION_MS = 100
+SQUASH_SCALE_Y = 0.8
+CLICK_DRAG_THRESHOLD_PX = 4
+GRAVITY_PX_S2 = 1500.0
+TERMINAL_VELOCITY_PX_S = 1200.0
 
 STATE_ANIMATION = {
     State.WANDER: "walk",
     State.IDLE: "idle",
     State.SIT: "sit",
     State.SLEEP: "sleep",
+}
+
+BIOS = {
+    "loki": "Solid black. Fast, restless, wanders a lot, sleeps little.",
+    "mike": "White with ever-changing spots. Professional napper.",
 }
 
 
@@ -45,8 +58,14 @@ class Cat(QWidget):
 
         self.x = x
         self.y = y
+        self.vy = 0.0
         self.base_speed = abs(speed)
         self.facing_left = False
+
+        self.dragging = False
+        self.squashing = False
+        self._press_global: QPoint | None = None
+        self._press_offset: QPoint | None = None
 
         self.rng = rng or random.Random()
         self.brain = Brain(weights, self.rng, self._bounds())
@@ -63,14 +82,37 @@ class Cat(QWidget):
         self.anim_timer = QTimer(self)
         self.anim_timer.timeout.connect(self._tick_animation)
         self._restart_anim_timer()
+        self._update_mask()
+
+    # -- animation / mask -------------------------------------------------
 
     def _restart_anim_timer(self) -> None:
         if self.brain.state is State.SLEEP:
             interval = SLEEP_ANIM_INTERVAL_MS
         else:
             fps = self.sprites.fps(self.anim_name)
+            if self.brain.state is State.STARTLED:
+                fps *= STARTLED_FPS_MULTIPLIER
             interval = max(1, int(1000 / fps))
         self.anim_timer.start(interval)
+
+    def _update_mask(self) -> None:
+        pix = self.sprites.frame(self.anim_name, self.anim_index, self.facing_left)
+        self.setMask(pix.mask())
+
+    def _reset_animation(self, anim_name: str) -> None:
+        self.anim_name = anim_name
+        self.anim_index = 0
+        self._restart_anim_timer()
+        self._update_mask()
+        self.update()
+
+    def _tick_animation(self) -> None:
+        self.anim_index = (self.anim_index + 1) % self.sprites.frame_count(self.anim_name)
+        self._update_mask()
+        self.update()
+
+    # -- geometry -----------------------------------------------------------
 
     def _bounds(self) -> tuple[float, float]:
         width = QApplication.primaryScreen().availableGeometry().width()
@@ -79,9 +121,25 @@ class Cat(QWidget):
     def floor_y(self) -> float:
         return float(QApplication.primaryScreen().availableGeometry().bottom() - self.frame_size)
 
+    # -- brain-driven movement -----------------------------------------------
+
     def _tick_movement(self) -> None:
+        state = self.brain.state
         dt = self.move_timer.interval() / 1000.0
-        prev_state = self.brain.state
+
+        if state is State.DRAGGED:
+            return
+        if state is State.FALLING:
+            self._tick_falling(dt)
+            return
+        if state is State.STARTLED:
+            self.brain.tick(dt, {"x": self.x})
+            if self.brain.state_elapsed >= STARTLED_DURATION_S:
+                self.brain.force(State.IDLE)
+                self._reset_animation(STATE_ANIMATION[State.IDLE])
+            return
+
+        prev_state = state
         state = self.brain.tick(dt, {"x": self.x})
 
         if state is State.WANDER and self.brain.wander_target_x is not None:
@@ -93,21 +151,119 @@ class Cat(QWidget):
             self.facing_left = direction < 0
 
         if state is not prev_state:
-            self._on_state_changed(state)
+            self._reset_animation(STATE_ANIMATION.get(state, self.anim_name))
 
         self.move(int(self.x), int(self.y))
         self.update()
 
-    def _on_state_changed(self, state: State) -> None:
-        self.anim_name = STATE_ANIMATION.get(state, self.anim_name)
-        self.anim_index = 0
-        self._restart_anim_timer()
+    def _tick_falling(self, dt: float) -> None:
+        self.y, self.vy, landed = step_fall(
+            self.y, self.vy, dt, self.floor_y(), gravity=GRAVITY_PX_S2, terminal=TERMINAL_VELOCITY_PX_S
+        )
+        self.move(int(self.x), int(self.y))
+        if landed:
+            self._land()
 
-    def _tick_animation(self) -> None:
-        self.anim_index = (self.anim_index + 1) % self.sprites.frame_count(self.anim_name)
+    def _land(self) -> None:
+        self.vy = 0.0
+        self.squashing = True
+        QTimer.singleShot(SQUASH_DURATION_MS, self._end_squash)
+        self.brain.force(State.IDLE)
+        self._reset_animation(STATE_ANIMATION[State.IDLE])
+
+    def _end_squash(self) -> None:
+        self.squashing = False
         self.update()
+
+    # -- mouse interaction ----------------------------------------------------
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press_global = event.globalPosition().toPoint()
+            self._press_offset = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if event.buttons() & Qt.MouseButton.LeftButton and self._press_offset is not None:
+            current_global = event.globalPosition().toPoint()
+            if not self.dragging:
+                moved = (current_global - self._press_global).manhattanLength()
+                if moved > CLICK_DRAG_THRESHOLD_PX:
+                    self._start_drag()
+            if self.dragging:
+                self._drag_to(current_global)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self.dragging:
+                self._end_drag()
+            else:
+                self._start_startled()
+            self._press_global = None
+            self._press_offset = None
+        super().mouseReleaseEvent(event)
+
+    def _start_drag(self) -> None:
+        self.dragging = True
+        self.brain.force(State.DRAGGED)
+        self._reset_animation(STATE_ANIMATION[State.IDLE])
+
+    def _drag_to(self, global_pos: QPoint) -> None:
+        new_pos = global_pos - self._press_offset
+        self.x, self.y = float(new_pos.x()), float(new_pos.y())
+        self.move(new_pos)
+
+    def _end_drag(self) -> None:
+        self.dragging = False
+        if self.y >= self.floor_y() - 0.5:
+            self.brain.force(State.IDLE)
+            self._reset_animation(STATE_ANIMATION[State.IDLE])
+        else:
+            self.vy = 0.0
+            self.brain.force(State.FALLING)
+            self._reset_animation(STATE_ANIMATION[State.IDLE])
+
+    def _start_startled(self) -> None:
+        self.brain.force(State.STARTLED)
+        self._reset_animation(STATE_ANIMATION[State.IDLE])
+
+    # -- right-click menu -----------------------------------------------------
+
+    def contextMenuEvent(self, event) -> None:
+        menu = QMenu(self)
+        menu.addAction("Sleep", self._menu_sleep)
+        menu.addAction("Wake up", self._menu_wake_up)
+        menu.addAction(f"About {self.name.capitalize()}", self._menu_about)
+        menu.addSeparator()
+        menu.addAction("Quit all", self._menu_quit_all)
+        menu.exec(event.globalPos())
+
+    def _menu_sleep(self) -> None:
+        self.brain.force(State.SLEEP)
+        self._reset_animation(STATE_ANIMATION[State.SLEEP])
+
+    def _menu_wake_up(self) -> None:
+        self.brain.force(State.IDLE)
+        self._reset_animation(STATE_ANIMATION[State.IDLE])
+
+    def _menu_about(self) -> None:
+        bio = BIOS.get(self.name, "")
+        QMessageBox.information(self, f"About {self.name.capitalize()}", f"{self.name.capitalize()} — {bio}")
+
+    def _menu_quit_all(self) -> None:
+        QApplication.instance().quit()
+
+    # -- painting -----------------------------------------------------------
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         pix = self.sprites.frame(self.anim_name, self.anim_index, self.facing_left)
-        painter.drawPixmap(0, 0, pix)
+        if self.squashing:
+            painter.save()
+            painter.translate(0, self.frame_size * (1 - SQUASH_SCALE_Y))
+            painter.scale(1.0, SQUASH_SCALE_Y)
+            painter.drawPixmap(0, 0, pix)
+            painter.restore()
+        else:
+            painter.drawPixmap(0, 0, pix)
