@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deskcats"
+version = "0.1.0"
+description = "Loki & Mike - desktop pet cats for Ubuntu (X11)"
+requires-python = ">=3.11"
+dependencies = [
+    "PyQt6",
+    "Pillow",
+    "tomli-w",
+]
+
+[project.scripts]
+deskcats = "deskcats.main:main"
+
+[tool.setuptools.packages.find]
+include = ["deskcats*"]
+
+[tool.setuptools.package-data]
+deskcats = ["assets/**/*"]
