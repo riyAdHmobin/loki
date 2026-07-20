@@ -18,3 +18,6 @@ deskcats = "deskcats.main:main"
 
 [tool.setuptools.packages.find]
 include = ["deskcats*"]
+
+[tool.setuptools.package-data]
+deskcats = ["assets/**/*"]

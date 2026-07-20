@@ -51,12 +51,12 @@ loki/
 │   ├── spots.py              # Mike's random spot generator
 │   ├── social.py             # cat-to-cat behaviors
 │   ├── config.py             # TOML config load/save with defaults
-│   └── gen_placeholder_art.py  # generates simple placeholder sprites with Pillow
-├── assets/
-│   ├── CREDITS.md
-│   └── skins/
-│       ├── loki-black/       # idle.png walk.png sleep.png sit.png + meta.toml
-│       └── mike-white/       # same filenames (white base, NO spots baked in)
+│   ├── gen_placeholder_art.py  # generates simple placeholder sprites with Pillow
+│   └── assets/                 # packaged as data so it ships in the installed wheel (see Phase 8 note)
+│       ├── CREDITS.md
+│       └── skins/
+│           ├── loki-black/   # idle.png walk.png sleep.png sit.png + meta.toml
+│           └── mike-white/   # same filenames (white base, NO spots baked in)
 └── tests/
     ├── test_state_machine.py
     ├── test_spots.py
@@ -91,7 +91,7 @@ loki/
 2. Colors: `loki-black` → fill `#111111`, eyes `#3fd12c`. `mike-white` → fill `#f2f2ef`, outline `#4a4a4a` (1 px), eyes `#e8a13c`. **Do not draw spots on Mike.**
 3. Each skin gets `meta.toml`: `frame_size = 64`, per-animation `frames = N`, `fps = 10` (sleep `fps = 4`).
 4. Make generation deterministic (fixed seed) and add a CLI: `python -m deskcats.gen_placeholder_art`.
-5. `assets/CREDITS.md`: note art is generated placeholder, to be replaced by the user (🧑) with a recolored CC0 pack later.
+5. `deskcats/assets/CREDITS.md`: note art is generated placeholder, to be replaced by the user (🧑) with a recolored CC0 pack later. (Assets live *inside* the `deskcats` package, not at the repo root — a top-level `assets/` directory is invisible to `pyproject.toml`'s package discovery and never ships in an installed wheel; this was caught by Phase 8's `pipx install .` checkpoint and the layout corrected in place. If you're implementing Phase 2 fresh, put it here from the start.)
 
 **Checkpoint (headless):** running the generator produces all 8 PNGs + 2 meta.toml; a unit test opens each PNG and asserts width == frames × 64, height == 64, alpha channel present. Commit `art: generated placeholder sprite sets`, merge, tag `m2`.
 
